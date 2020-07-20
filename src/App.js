@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import { API } from 'aws-amplify';
+import { API, Storage } from 'aws-amplify';
 import { withAuthenticator, AmplifySignOut } from '@aws-amplify/ui-react';
 import { listNotes } from './graphql/queries';
 import {
@@ -18,9 +18,27 @@ function App() {
     fetchNotes();
   }, []);
 
+  async function onChange(e) {
+    if (!e.target.files[0]) return;
+    const file = e.target.files[0];
+    setFormData({ ...formData, image: file.name });
+    await Storage.put(file.name, file);
+    fetchNotes();
+  }
+
   async function fetchNotes() {
     const apiData = await API.graphql({ query: listNotes });
-    setNotes(apiData.data.listNotes.items);
+    const notesFromApi = apiData.data.listNotes.items;
+    await Promise.all(
+      notesFromApi.map(async (note) => {
+        if (note.image) {
+          const image = await Storage.get(note.image);
+          note.image = image;
+        }
+
+        return note;
+      })
+    );
   }
 
   async function createNote() {
@@ -29,6 +47,10 @@ function App() {
       query: createNoteMutation,
       variables: { input: formData },
     });
+    if (formData.image) {
+      const image = await Storage.get(formData.image);
+      formData.image = image;
+    }
     setNotes([...notes, formData]);
     setFormData(initialFormState);
   }
@@ -57,13 +79,21 @@ function App() {
         placeholder="Note description"
         value={formData.description}
       />
+      <input type="file" onChange={onChange} />
       <button onClick={createNote}>Create Note</button>
       <div style={{ marginBottom: 30 }}>
-        {notes.map((note) => (
+        {notes.map((note, index) => (
           <div key={note.id || note.name}>
             <h2>{note.name}</h2>
             <p>{note.description}</p>
             <button onClick={() => deleteNote(note)}>Delete note</button>
+            {note.image && (
+              <img
+                src={note.image}
+                alt={`note ${index}`}
+                style={{ width: 400 }}
+              />
+            )}
           </div>
         ))}
       </div>
